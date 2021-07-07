@@ -10,6 +10,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use time::{Duration, OffsetDateTime};
 use url::Url;
+use std::str::FromStr;
 
 // Post flair with content, background color and foreground color
 pub struct Flair {
@@ -213,6 +214,7 @@ pub struct Post {
 	pub created: String,
 	pub comments: (String, String),
 	pub gallery: Vec<GalleryMedia>,
+	pub awards: Awards,
 }
 
 impl Post {
@@ -250,6 +252,9 @@ impl Post {
 
 			// Determine the type of media along with the media URL
 			let (post_type, media, gallery) = Media::parse(&data).await;
+			let mut awards = Awards::new();
+
+			awards.parse(&data["all_awardings"]);
 
 			posts.push(Self {
 				id: val(post, "id"),
@@ -309,6 +314,7 @@ impl Post {
 				created,
 				comments: format_num(data["num_comments"].as_i64().unwrap_or_default()),
 				gallery,
+				awards,
 			});
 		}
 
@@ -334,6 +340,61 @@ pub struct Comment {
 	pub edited: (String, String),
 	pub replies: Vec<Comment>,
 	pub highlighted: bool,
+	pub awards: Awards,
+}
+
+#[derive(Default, Clone)]
+pub struct Award {
+	pub name: String,
+	pub icon_url: String,
+	pub description: String,
+	pub count: i64,
+}
+
+impl std::fmt::Display for Award {
+	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+		write!(f, "{} {} {}", self.name, self.icon_url, self.description)
+	}
+}
+
+pub struct Awards(pub Vec<Award>);
+
+impl std::ops::Deref for Awards {
+	type Target = Vec<Award>;
+
+	fn deref(&self) -> &Self::Target {
+		&self.0
+	}
+}
+
+impl std::fmt::Display for Awards {
+	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+		self.iter().fold(Ok(()), |result, award| result.and_then(|_| writeln!(f, "{}", award)))
+	}
+}
+
+impl Awards {
+	pub fn new() -> Self {
+		let awards: Vec<Award> = Vec::new();
+		Self(awards)
+	}
+
+	pub fn parse(&mut self, items: &Value) -> &mut Self {
+		if let Some(array_items) = items.as_array() {
+			for item in array_items.iter() {
+				let name = item["name"].as_str().unwrap_or_default().to_string();
+				let icon_url = format_url(&item["icon_url"].as_str().unwrap_or_default().to_string());
+				let description = item["description"].as_str().unwrap_or_default().to_string();
+				let count: i64 =  i64::from_str(&item["count"].to_string()).unwrap_or(1);
+
+				self.0.push(Award { name, icon_url, description, count })
+			}
+
+			self
+		} else {
+			self
+		}
+	}
 }
 
 #[derive(Template)]
